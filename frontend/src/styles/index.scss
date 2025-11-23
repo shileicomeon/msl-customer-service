@@ -1,0 +1,30 @@
+// 全局样式
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.3);
+  }
+}
+
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+// 移动端适配
+@media screen and (max-width: 768px) {
+  .el-dialog {
+    margin: 0 !important;
+  }
+
+  .el-message-box {
+    width: 90% !important;
+  }
+}
+
