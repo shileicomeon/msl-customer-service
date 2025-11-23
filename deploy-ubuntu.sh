@@ -79,7 +79,7 @@ fi
 
 # 步骤4: 检查项目目录
 echo -e "${GREEN}[4/10] 检查项目目录...${NC}"
-PROJECT_DIR="/opt/msl-customer-service"
+PROJECT_DIR="/root/sal/msl-customer-service"
 
 if [ ! -d "$PROJECT_DIR" ]; then
     echo -e "${RED}错误: 项目目录不存在: $PROJECT_DIR${NC}"
