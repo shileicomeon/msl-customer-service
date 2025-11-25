@@ -8,6 +8,7 @@ module.exports = defineConfig({
   lintOnSave: false,
   productionSourceMap: false,
   devServer: {
+    host: "0.0.0.0",
     port: 8081,
     open: true,
     proxy: {
