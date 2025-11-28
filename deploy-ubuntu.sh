@@ -124,7 +124,7 @@ docker compose down 2>/dev/null || true
 
 # 步骤8: 拉取镜像
 echo -e "${GREEN}[8/10] 拉取Docker镜像...${NC}"
-docker compose pull
+echo "跳过拉取镜像（使用本地镜像）"
 
 # 步骤9: 构建并启动服务
 echo -e "${GREEN}[9/10] 构建并启动服务...${NC}"
