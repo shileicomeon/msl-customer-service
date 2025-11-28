@@ -128,7 +128,8 @@ echo "跳过拉取镜像（使用本地镜像）"
 
 # 步骤9: 构建并启动服务
 echo -e "${GREEN}[9/10] 构建并启动服务...${NC}"
-docker compose up -d --build --pull never
+docker compose build
+docker compose up -d
 
 # 等待服务启动
 echo "等待服务启动..."
