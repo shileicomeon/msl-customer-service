@@ -23,7 +23,7 @@ services:
 
   # Redis缓存
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: msl-cs-redis
     restart: always
     ports:
@@ -34,10 +34,9 @@ services:
       - msl-network
 
   # Go后端服务
+# Go后端服务
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: local-backend:latest   # 使用本地镜像
     container_name: msl-cs-backend
     restart: always
     ports:
@@ -55,9 +54,7 @@ services:
 
   # Vue前端服务
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: local-frontend:latest  # 使用本地镜像
     container_name: msl-cs-frontend
     restart: always
     ports:
