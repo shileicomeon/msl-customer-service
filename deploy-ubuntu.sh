@@ -144,13 +144,22 @@ else
     if docker images | grep -q "alpine:latest"; then
         docker tag alpine:latest local-alpine:latest 2>/dev/null || true
     fi
+    # 检查 Redis 镜像（如果使用 redis:7-alpine 但本地只有 redis:7）
+    if docker images | grep -q "redis:7"; then
+        if ! docker images | grep -q "redis:7-alpine"; then
+            echo "为 redis:7 创建 redis:7-alpine 标签（如果需要）..."
+            docker tag redis:7 redis:7-alpine 2>/dev/null || true
+        fi
+    fi
     echo "镜像标签准备完成"
 fi
 
 # 步骤9: 构建并启动服务
 echo -e "${GREEN}[9/10] 构建并启动服务...${NC}"
-# 使用 --pull=never 确保不尝试从远程拉取，禁用 BuildKit 避免元数据检查
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose build --pull=never 2>&1 | grep -v "WARN.*version" || docker compose build --pull=never
+# 使用 --pull=false 确保不尝试从远程拉取，禁用 BuildKit 避免元数据检查
+export DOCKER_BUILDKIT=0
+export COMPOSE_DOCKER_CLI_BUILD=0
+docker compose build --pull=false 2>&1 | grep -v "WARN.*version" || true
 docker compose up -d
 
 # 等待服务启动

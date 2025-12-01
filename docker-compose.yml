@@ -21,7 +21,7 @@ services:
 
   # Redis缓存
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: msl-cs-redis
     restart: always
     ports:

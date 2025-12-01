@@ -60,6 +60,19 @@ else
     fi
 fi
 
+# 检查 Redis 镜像（如果使用 redis:7-alpine 但本地只有 redis:7）
+if docker images | grep -q "redis:7-alpine"; then
+    echo "✓ redis:7-alpine 已存在"
+else
+    if docker images | grep -q "redis:7"; then
+        echo "为 redis:7 创建 redis:7-alpine 标签..."
+        docker tag redis:7 redis:7-alpine
+        echo "✓ 已创建 redis:7-alpine"
+    else
+        echo "⚠ 未找到 redis:7 或 redis:7-alpine 镜像"
+    fi
+fi
+
 echo ""
 echo "======================================"
 echo "镜像标签准备完成！"
