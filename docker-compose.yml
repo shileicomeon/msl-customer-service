@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MySQL数据库
   mysql:
@@ -34,8 +32,10 @@ services:
       - msl-network
 
   # Go后端服务
-# Go后端服务
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     image: local-backend:latest   # 使用本地镜像
     container_name: msl-cs-backend
     restart: always
@@ -54,6 +54,9 @@ services:
 
   # Vue前端服务
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     image: local-frontend:latest  # 使用本地镜像
     container_name: msl-cs-frontend
     restart: always

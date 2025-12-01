@@ -122,13 +122,35 @@ chmod +x start.sh 2>/dev/null || true
 echo -e "${GREEN}[7/10] 停止旧服务...${NC}"
 docker compose down 2>/dev/null || true
 
-# 步骤8: 拉取镜像
-echo -e "${GREEN}[8/10] 拉取Docker镜像...${NC}"
+# 步骤8: 准备本地镜像标签
+echo -e "${GREEN}[8/10] 准备本地镜像标签...${NC}"
 echo "跳过拉取镜像（使用本地镜像）"
+
+# 给本地镜像打标签（如果还没有 local- 前缀的标签）
+if docker images | grep -q "local-node:18-alpine"; then
+    echo "本地镜像标签已存在"
+else
+    echo "为本地镜像打标签..."
+    # 检查并创建 local- 前缀的标签
+    if docker images | grep -q "node:18-alpine"; then
+        docker tag node:18-alpine local-node:18-alpine 2>/dev/null || true
+    fi
+    if docker images | grep -q "nginx:alpine"; then
+        docker tag nginx:alpine local-nginx:alpine 2>/dev/null || true
+    fi
+    if docker images | grep -q "golang:1.21-alpine"; then
+        docker tag golang:1.21-alpine local-golang:1.21-alpine 2>/dev/null || true
+    fi
+    if docker images | grep -q "alpine:latest"; then
+        docker tag alpine:latest local-alpine:latest 2>/dev/null || true
+    fi
+    echo "镜像标签准备完成"
+fi
 
 # 步骤9: 构建并启动服务
 echo -e "${GREEN}[9/10] 构建并启动服务...${NC}"
-docker compose build --pull=false
+# 使用 --pull=never 确保不尝试从远程拉取，禁用 BuildKit 避免元数据检查
+DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose build --pull=never 2>&1 | grep -v "WARN.*version" || docker compose build --pull=never
 docker compose up -d
 
 # 等待服务启动
