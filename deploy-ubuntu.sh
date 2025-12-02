@@ -211,21 +211,168 @@ fi
 
 echo "✓ 所有必需镜像已就绪"
 
-# 预热镜像（让 Docker 缓存镜像元数据，避免构建时尝试拉取）
-echo "预热镜像元数据..."
-for img in "${REQUIRED_IMAGES[@]}"; do
-    docker inspect "$img" > /dev/null 2>&1 || true
+# 预热镜像（让 Docker 完全识别镜像，避免构建时尝试验证 digest）
+echo "预热镜像（确保 Docker 完全识别）..."
+BUILD_IMAGES=("golang:1.21-alpine" "node:18-alpine" "nginx:alpine" "alpine:latest")
+for img in "${BUILD_IMAGES[@]}"; do
+    echo "  验证 $img..."
+    # 使用 docker inspect 确保镜像元数据已加载
+    INSPECT_OUTPUT=$(docker inspect "$img" 2>&1)
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误: 镜像 $img 无法访问${NC}"
+        echo "$INSPECT_OUTPUT"
+        exit 1
+    fi
+    # 获取镜像 ID 并验证
+    IMAGE_ID=$(echo "$INSPECT_OUTPUT" | grep -i "Id" | head -1 | awk '{print $2}' | tr -d '",')
+    if [ -z "$IMAGE_ID" ]; then
+        IMAGE_ID=$(docker images "$img" --format "{{.ID}}" | head -1)
+    fi
+    echo "    镜像 ID: $IMAGE_ID"
 done
+echo "✓ 所有构建镜像已验证"
 
 # 使用 --pull=false 确保不尝试从远程拉取，禁用 BuildKit 避免元数据检查
 export DOCKER_BUILDKIT=0
 export COMPOSE_DOCKER_CLI_BUILD=0
 
-# 构建服务（忽略 version 警告）
-echo "开始构建..."
-docker compose build --pull=false 2>&1 | grep -v "WARN.*version" | grep -v "Docker Compose is configured" || {
-    echo -e "${YELLOW}构建过程中可能有警告，继续启动服务...${NC}"
+# 构建服务（使用 docker build 直接构建，避免 compose 的额外检查）
+echo "开始构建（离线模式）..."
+cd $PROJECT_DIR
+
+# 先构建后端
+echo "构建后端服务..."
+cd backend
+
+# 获取基础镜像 ID（使用镜像 ID 可以避免 digest 验证）
+GOLANG_ID=$(docker images golang:1.21-alpine --format "{{.ID}}" | head -1)
+ALPINE_ID=$(docker images alpine:latest --format "{{.ID}}" | head -1)
+
+if [ -z "$GOLANG_ID" ] || [ -z "$ALPINE_ID" ]; then
+    echo -e "${RED}错误: 无法获取基础镜像 ID${NC}"
+    exit 1
+fi
+
+echo "  使用镜像 ID: golang=$GOLANG_ID, alpine=$ALPINE_ID"
+
+# 创建临时 Dockerfile（使用镜像 ID）
+cat > Dockerfile.tmp << EOF
+# 构建阶段 - 使用镜像 ID 避免 digest 验证
+FROM $GOLANG_ID AS builder
+
+WORKDIR /app
+
+# 复制go mod文件
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 复制源代码
+COPY . .
+
+# 构建应用
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# 运行阶段
+FROM $ALPINE_ID
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+
+# 从构建阶段复制二进制文件
+COPY --from=builder /app/main .
+COPY --from=builder /app/config ./config
+
+# 创建上传目录
+RUN mkdir -p ./uploads
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+EXPOSE 8080
+
+CMD ["./main"]
+EOF
+
+# 使用临时 Dockerfile 构建
+DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.tmp -t local-backend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" || {
+    BUILD_EXIT_CODE=${PIPESTATUS[0]}
+    if [ $BUILD_EXIT_CODE -eq 0 ]; then
+        echo -e "${GREEN}✓ 后端构建完成${NC}"
+    else
+        echo -e "${RED}✗ 后端构建失败，退出码: $BUILD_EXIT_CODE${NC}"
+        echo "提示: 请确保所有基础镜像都已正确加载"
+        exit 1
+    fi
 }
+
+# 清理临时文件
+rm -f Dockerfile.tmp
+cd ..
+
+# 再构建前端
+echo "构建前端服务..."
+cd frontend
+
+# 获取基础镜像 ID
+NODE_ID=$(docker images node:18-alpine --format "{{.ID}}" | head -1)
+NGINX_ID=$(docker images nginx:alpine --format "{{.ID}}" | head -1)
+
+if [ -z "$NODE_ID" ] || [ -z "$NGINX_ID" ]; then
+    echo -e "${RED}错误: 无法获取基础镜像 ID${NC}"
+    exit 1
+fi
+
+echo "  使用镜像 ID: node=$NODE_ID, nginx=$NGINX_ID"
+
+# 创建临时 Dockerfile（使用镜像 ID）
+cat > Dockerfile.tmp << EOF
+# 构建阶段 - 使用镜像 ID 避免 digest 验证
+FROM $NODE_ID AS builder
+
+WORKDIR /app
+
+# 复制package文件
+COPY package*.json ./
+
+# 安装依赖
+RUN npm install --registry=https://registry.npmmirror.com
+
+# 复制源代码
+COPY . .
+
+# 构建应用
+RUN npm run build
+
+# 运行阶段
+FROM $NGINX_ID
+
+# 复制构建产物
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# 复制nginx配置
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+# 使用临时 Dockerfile 构建
+DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.tmp -t local-frontend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" || {
+    BUILD_EXIT_CODE=${PIPESTATUS[0]}
+    if [ $BUILD_EXIT_CODE -eq 0 ]; then
+        echo -e "${GREEN}✓ 前端构建完成${NC}"
+    else
+        echo -e "${RED}✗ 前端构建失败，退出码: $BUILD_EXIT_CODE${NC}"
+        echo "提示: 请确保所有基础镜像都已正确加载"
+        exit 1
+    fi
+}
+
+# 清理临时文件
+rm -f Dockerfile.tmp
+cd ..
 
 # 启动服务
 echo "启动服务..."
