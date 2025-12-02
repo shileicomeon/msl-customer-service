@@ -73,6 +73,35 @@ else
     fi
 fi
 
+# 确保 Dockerfile 需要的原始镜像标签存在（反向打标签）
+echo ""
+echo "确保 Dockerfile 需要的镜像标签存在..."
+
+# 从 local-* 标签创建原始标签（如果原始标签不存在）
+if docker images | grep -q "local-golang:1.21-alpine" && ! docker images | grep -q "golang:1.21-alpine"; then
+    echo "从 local-golang:1.21-alpine 创建 golang:1.21-alpine..."
+    docker tag local-golang:1.21-alpine golang:1.21-alpine
+    echo "✓ 已创建 golang:1.21-alpine"
+fi
+
+if docker images | grep -q "local-node:18-alpine" && ! docker images | grep -q "node:18-alpine"; then
+    echo "从 local-node:18-alpine 创建 node:18-alpine..."
+    docker tag local-node:18-alpine node:18-alpine
+    echo "✓ 已创建 node:18-alpine"
+fi
+
+if docker images | grep -q "local-nginx:alpine" && ! docker images | grep -q "nginx:alpine"; then
+    echo "从 local-nginx:alpine 创建 nginx:alpine..."
+    docker tag local-nginx:alpine nginx:alpine
+    echo "✓ 已创建 nginx:alpine"
+fi
+
+if docker images | grep -q "local-alpine:latest" && ! docker images | grep -q "alpine:latest"; then
+    echo "从 local-alpine:latest 创建 alpine:latest..."
+    docker tag local-alpine:latest alpine:latest
+    echo "✓ 已创建 alpine:latest"
+fi
+
 echo ""
 echo "======================================"
 echo "镜像标签准备完成！"

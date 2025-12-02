@@ -126,40 +126,109 @@ docker compose down 2>/dev/null || true
 echo -e "${GREEN}[8/10] 准备本地镜像标签...${NC}"
 echo "跳过拉取镜像（使用本地镜像）"
 
-# 给本地镜像打标签（如果还没有 local- 前缀的标签）
-if docker images | grep -q "local-node:18-alpine"; then
-    echo "本地镜像标签已存在"
-else
-    echo "为本地镜像打标签..."
-    # 检查并创建 local- 前缀的标签
-    if docker images | grep -q "node:18-alpine"; then
-        docker tag node:18-alpine local-node:18-alpine 2>/dev/null || true
+echo "为 Dockerfile 准备镜像标签..."
+
+# 1. 确保 Dockerfile 使用的原始镜像标签存在
+# golang:1.21-alpine (Dockerfile 需要)
+if ! docker images | grep -q "golang:1.21-alpine"; then
+    if docker images | grep -q "local-golang:1.21-alpine"; then
+        echo "从 local-golang:1.21-alpine 创建 golang:1.21-alpine..."
+        docker tag local-golang:1.21-alpine golang:1.21-alpine 2>/dev/null || true
     fi
-    if docker images | grep -q "nginx:alpine"; then
-        docker tag nginx:alpine local-nginx:alpine 2>/dev/null || true
-    fi
-    if docker images | grep -q "golang:1.21-alpine"; then
-        docker tag golang:1.21-alpine local-golang:1.21-alpine 2>/dev/null || true
-    fi
-    if docker images | grep -q "alpine:latest"; then
-        docker tag alpine:latest local-alpine:latest 2>/dev/null || true
-    fi
-    # 检查 Redis 镜像（如果使用 redis:7-alpine 但本地只有 redis:7）
-    if docker images | grep -q "redis:7"; then
-        if ! docker images | grep -q "redis:7-alpine"; then
-            echo "为 redis:7 创建 redis:7-alpine 标签（如果需要）..."
-            docker tag redis:7 redis:7-alpine 2>/dev/null || true
-        fi
-    fi
-    echo "镜像标签准备完成"
 fi
 
-# 步骤9: 构建并启动服务
+# node:18-alpine (Dockerfile 需要)
+if ! docker images | grep -q "node:18-alpine"; then
+    if docker images | grep -q "local-node:18-alpine"; then
+        echo "从 local-node:18-alpine 创建 node:18-alpine..."
+        docker tag local-node:18-alpine node:18-alpine 2>/dev/null || true
+    fi
+fi
+
+# nginx:alpine (Dockerfile 需要)
+if ! docker images | grep -q "nginx:alpine"; then
+    if docker images | grep -q "local-nginx:alpine"; then
+        echo "从 local-nginx:alpine 创建 nginx:alpine..."
+        docker tag local-nginx:alpine nginx:alpine 2>/dev/null || true
+    fi
+fi
+
+# alpine:latest (Dockerfile 需要)
+if ! docker images | grep -q "alpine:latest"; then
+    if docker images | grep -q "local-alpine:latest"; then
+        echo "从 local-alpine:latest 创建 alpine:latest..."
+        docker tag local-alpine:latest alpine:latest 2>/dev/null || true
+    fi
+fi
+
+# redis:7-alpine (docker-compose.yml 需要，但本地只有 redis:7)
+if ! docker images | grep -q "redis:7-alpine"; then
+    if docker images | grep -q "redis:7"; then
+        echo "从 redis:7 创建 redis:7-alpine..."
+        docker tag redis:7 redis:7-alpine 2>/dev/null || true
+    fi
+fi
+
+# 2. 同时创建 local- 前缀的标签（用于后续使用）
+if docker images | grep -q "node:18-alpine" && ! docker images | grep -q "local-node:18-alpine"; then
+    docker tag node:18-alpine local-node:18-alpine 2>/dev/null || true
+fi
+if docker images | grep -q "nginx:alpine" && ! docker images | grep -q "local-nginx:alpine"; then
+    docker tag nginx:alpine local-nginx:alpine 2>/dev/null || true
+fi
+if docker images | grep -q "golang:1.21-alpine" && ! docker images | grep -q "local-golang:1.21-alpine"; then
+    docker tag golang:1.21-alpine local-golang:1.21-alpine 2>/dev/null || true
+fi
+if docker images | grep -q "alpine:latest" && ! docker images | grep -q "local-alpine:latest"; then
+    docker tag alpine:latest local-alpine:latest 2>/dev/null || true
+fi
+
+echo "✓ 镜像标签准备完成"
+
+# 步骤9: 验证镜像并构建服务
 echo -e "${GREEN}[9/10] 构建并启动服务...${NC}"
+
+# 验证所有必需的镜像是否存在
+echo "验证必需的镜像..."
+REQUIRED_IMAGES=("golang:1.21-alpine" "node:18-alpine" "nginx:alpine" "alpine:latest" "redis:7" "mysql:8.0")
+MISSING_IMAGES=()
+
+for img in "${REQUIRED_IMAGES[@]}"; do
+    if ! docker images | grep -q "$img"; then
+        MISSING_IMAGES+=("$img")
+    fi
+done
+
+if [ ${#MISSING_IMAGES[@]} -gt 0 ]; then
+    echo -e "${RED}错误: 以下镜像不存在，无法继续构建:${NC}"
+    for img in "${MISSING_IMAGES[@]}"; do
+        echo "  - $img"
+    done
+    echo ""
+    echo "请先导入这些镜像或运行 prepare-local-images.sh 准备镜像标签"
+    exit 1
+fi
+
+echo "✓ 所有必需镜像已就绪"
+
+# 预热镜像（让 Docker 缓存镜像元数据，避免构建时尝试拉取）
+echo "预热镜像元数据..."
+for img in "${REQUIRED_IMAGES[@]}"; do
+    docker inspect "$img" > /dev/null 2>&1 || true
+done
+
 # 使用 --pull=false 确保不尝试从远程拉取，禁用 BuildKit 避免元数据检查
 export DOCKER_BUILDKIT=0
 export COMPOSE_DOCKER_CLI_BUILD=0
-docker compose build --pull=false 2>&1 | grep -v "WARN.*version" || true
+
+# 构建服务（忽略 version 警告）
+echo "开始构建..."
+docker compose build --pull=false 2>&1 | grep -v "WARN.*version" | grep -v "Docker Compose is configured" || {
+    echo -e "${YELLOW}构建过程中可能有警告，继续启动服务...${NC}"
+}
+
+# 启动服务
+echo "启动服务..."
 docker compose up -d
 
 # 等待服务启动
