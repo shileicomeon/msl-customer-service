@@ -244,21 +244,24 @@ cd $PROJECT_DIR
 echo "构建后端服务..."
 cd backend
 
-# 获取基础镜像 ID（使用镜像 ID 可以避免 digest 验证）
-GOLANG_ID=$(docker images golang:1.21-alpine --format "{{.ID}}" | head -1)
-ALPINE_ID=$(docker images alpine:latest --format "{{.ID}}" | head -1)
-
-if [ -z "$GOLANG_ID" ] || [ -z "$ALPINE_ID" ]; then
-    echo -e "${RED}错误: 无法获取基础镜像 ID${NC}"
-    exit 1
+# 确保原始标签存在（从 local-* 标签创建，如果不存在）
+if ! docker images | grep -q "golang:1.21-alpine"; then
+    if docker images | grep -q "local-golang:1.21-alpine"; then
+        echo "  创建 golang:1.21-alpine 标签..."
+        docker tag local-golang:1.21-alpine golang:1.21-alpine
+    fi
+fi
+if ! docker images | grep -q "alpine:latest"; then
+    if docker images | grep -q "local-alpine:latest"; then
+        echo "  创建 alpine:latest 标签..."
+        docker tag local-alpine:latest alpine:latest
+    fi
 fi
 
-echo "  使用镜像 ID: golang=$GOLANG_ID, alpine=$ALPINE_ID"
-
-# 创建临时 Dockerfile（使用镜像 ID）
-cat > Dockerfile.tmp << EOF
-# 构建阶段 - 使用镜像 ID 避免 digest 验证
-FROM $GOLANG_ID AS builder
+# 创建临时 Dockerfile（使用原始标签，不使用 local-*）
+cat > Dockerfile.build << 'EOF'
+# 构建阶段
+FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
@@ -273,7 +276,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # 运行阶段
-FROM $ALPINE_ID
+FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates tzdata
 
@@ -295,40 +298,47 @@ CMD ["./main"]
 EOF
 
 # 使用临时 Dockerfile 构建
-DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.tmp -t local-backend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" || {
+echo "  使用原始标签构建..."
+DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.build -t local-backend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" | grep -v "DEPRECATED" || {
     BUILD_EXIT_CODE=${PIPESTATUS[0]}
     if [ $BUILD_EXIT_CODE -eq 0 ]; then
         echo -e "${GREEN}✓ 后端构建完成${NC}"
     else
         echo -e "${RED}✗ 后端构建失败，退出码: $BUILD_EXIT_CODE${NC}"
         echo "提示: 请确保所有基础镜像都已正确加载"
+        echo "尝试解决方案:"
+        echo "  1. 检查镜像: docker images | grep -E 'golang|alpine'"
+        echo "  2. 重新加载镜像: docker load < image.tar"
         exit 1
     fi
 }
 
 # 清理临时文件
-rm -f Dockerfile.tmp
+rm -f Dockerfile.build
 cd ..
 
 # 再构建前端
 echo "构建前端服务..."
 cd frontend
 
-# 获取基础镜像 ID
-NODE_ID=$(docker images node:18-alpine --format "{{.ID}}" | head -1)
-NGINX_ID=$(docker images nginx:alpine --format "{{.ID}}" | head -1)
-
-if [ -z "$NODE_ID" ] || [ -z "$NGINX_ID" ]; then
-    echo -e "${RED}错误: 无法获取基础镜像 ID${NC}"
-    exit 1
+# 确保原始标签存在（从 local-* 标签创建，如果不存在）
+if ! docker images | grep -q "node:18-alpine"; then
+    if docker images | grep -q "local-node:18-alpine"; then
+        echo "  创建 node:18-alpine 标签..."
+        docker tag local-node:18-alpine node:18-alpine
+    fi
+fi
+if ! docker images | grep -q "nginx:alpine"; then
+    if docker images | grep -q "local-nginx:alpine"; then
+        echo "  创建 nginx:alpine 标签..."
+        docker tag local-nginx:alpine nginx:alpine
+    fi
 fi
 
-echo "  使用镜像 ID: node=$NODE_ID, nginx=$NGINX_ID"
-
-# 创建临时 Dockerfile（使用镜像 ID）
-cat > Dockerfile.tmp << EOF
-# 构建阶段 - 使用镜像 ID 避免 digest 验证
-FROM $NODE_ID AS builder
+# 创建临时 Dockerfile（使用原始标签，不使用 local-*）
+cat > Dockerfile.build << 'EOF'
+# 构建阶段
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
@@ -345,7 +355,7 @@ COPY . .
 RUN npm run build
 
 # 运行阶段
-FROM $NGINX_ID
+FROM nginx:alpine
 
 # 复制构建产物
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -359,19 +369,23 @@ CMD ["nginx", "-g", "daemon off;"]
 EOF
 
 # 使用临时 Dockerfile 构建
-DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.tmp -t local-frontend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" || {
+echo "  使用原始标签构建..."
+DOCKER_BUILDKIT=0 docker build --pull=false -f Dockerfile.build -t local-frontend:latest . 2>&1 | grep -v "WARN" | grep -v "Docker Compose" | grep -v "DEPRECATED" || {
     BUILD_EXIT_CODE=${PIPESTATUS[0]}
     if [ $BUILD_EXIT_CODE -eq 0 ]; then
         echo -e "${GREEN}✓ 前端构建完成${NC}"
     else
         echo -e "${RED}✗ 前端构建失败，退出码: $BUILD_EXIT_CODE${NC}"
         echo "提示: 请确保所有基础镜像都已正确加载"
+        echo "尝试解决方案:"
+        echo "  1. 检查镜像: docker images | grep -E 'node|nginx'"
+        echo "  2. 重新加载镜像: docker load < image.tar"
         exit 1
     fi
 }
 
 # 清理临时文件
-rm -f Dockerfile.tmp
+rm -f Dockerfile.build
 cd ..
 
 # 启动服务
